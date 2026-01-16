@@ -63,26 +63,70 @@ export class DownloaderUI {
 
         switch (state.status) {
             case 'queued':
-                button.textContent = 'Queued...';
-                button.disabled = true;
+                button.textContent = 'Cancel';
+                button.disabled = false;
                 button.style.backgroundColor = '#ffa500';
+                button.dataset.action = 'cancel';
                 break;
             case 'downloading':
-                button.textContent = `${state.progress}%`;
-                button.disabled = true;
+                button.textContent = `Cancel (${state.progress}%)`;
+                button.disabled = false;
                 button.style.backgroundColor = '#2196F3';
+                button.dataset.action = 'cancel';
                 break;
             case 'completed':
                 button.textContent = '✓ Downloaded';
                 button.disabled = true;
                 button.style.backgroundColor = '#4CAF50';
+                button.dataset.action = 'none';
                 break;
             case 'error':
                 button.textContent = '✗ Error';
                 button.disabled = false;
                 button.style.backgroundColor = '#f44336';
                 button.title = state.error;
+                button.dataset.action = 'download';
                 break;
+        }
+    }
+
+    /**
+     * Cancel a server download
+     */
+    async cancelServerDownload(downloadId) {
+        try {
+            const response = await api.fetchApi(`/${API_PREFIX}/server_download/cancel`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    download_id: downloadId
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                console.log(`[DownloaderUI] Download cancelled: ${downloadId}`);
+                // Reset button state
+                this.downloadStates.delete(downloadId);
+                const button = this.modal.querySelector(`[data-download-id="${downloadId}"]`);
+                if (button) {
+                    button.textContent = 'Download';
+                    button.disabled = false;
+                    button.style.backgroundColor = '#4CAF50';
+                    button.dataset.action = 'download';
+                }
+                return { success: true };
+            } else {
+                alert(`Failed to cancel download: ${result.error || 'Unknown error'}`);
+                return { success: false, error: result.error };
+            }
+        } catch (error) {
+            console.error("[DownloaderUI] Failed to cancel download:", error);
+            alert(`Failed to cancel download: ${error.message}`);
+            return { success: false, error: error.message };
         }
     }
 
@@ -487,8 +531,9 @@ export class DownloaderUI {
                     <span class="downloader-model-index">${index + 1}.</span>
                     <span class="downloader-model-filename">
                         ${this.escapeHtml(model.filename)}
-                        <a href="https://huggingface.co/models?search=${encodeURIComponent(this.escapeHtml(model.filename))}" target="_blank" title="Search on Huggingface" style="cursor: pointer; margin-left: 2px; font-size: 1.2em; text-decoration: none;">🔍</a></span>
-                        <a href="https://www.google.com/search?q=${encodeURIComponent(this.escapeHtml(model.filename))}" target="_blank" title="Search on Google" style="cursor: pointer; margin-left: 2px; font-size: 1.2em; text-decoration: none;">🔍</a></span>
+                        <a href="https://huggingface.co/models?search=${encodeURIComponent(this.escapeHtml(model.filename))}" target="_blank" title="Search on Huggingface" style="cursor: pointer; margin-left: 2px; font-size: 1.2em; text-decoration: none;">🔍</a>
+                        <a href="https://www.google.com/search?q=${encodeURIComponent(this.escapeHtml(model.filename))}" target="_blank" title="Search on Google" style="cursor: pointer; margin-left: 2px; font-size: 1.2em; text-decoration: none;">🔍</a>
+                    </span>
                     <span class="downloader-model-extension">${model.extension}</span>
                 </div>
                 <div class="downloader-model-details">
@@ -539,10 +584,34 @@ export class DownloaderUI {
         // Add event listeners to download buttons
         const downloadButtons = listContainer.querySelectorAll('.downloader-download-btn');
         downloadButtons.forEach((button) => {
+            const modelIndex = parseInt(button.dataset.modelIndex);
+            const model = this.modelsInWorkflow[modelIndex];
+            
+            // Set the download ID before checking state
+            const downloadId = `${model.directory || ''}/${model.filenamePath}`;
+            button.dataset.downloadId = downloadId;
+            
+            // Check if there's an existing download state for this model
+            const existingState = this.downloadStates.get(downloadId);
+            if (existingState) {
+                // Restore button state based on existing download
+                this.updateDownloadButton(downloadId);
+            } else {
+                // Set initial action state for new downloads
+                button.dataset.action = 'download';
+            }
+            
             button.addEventListener('click', async (e) => {
-                const modelIndex = parseInt(button.dataset.modelIndex);
-                const model = this.modelsInWorkflow[modelIndex];
+                const action = button.dataset.action || 'download';
                 
+                // Handle cancel action
+                if (action === 'cancel') {
+                    const downloadId = button.dataset.downloadId;
+                    await this.cancelServerDownload(downloadId);
+                    return;
+                }
+                
+                // Handle download action
                 // Get current values from inputs
                 const directoryInput = listContainer.querySelector(`.downloader-directory-input[data-model-index="${modelIndex}"]`);
                 const urlInput = listContainer.querySelector(`.downloader-url-input[data-model-index="${modelIndex}"]`);
@@ -561,7 +630,8 @@ export class DownloaderUI {
                 }
                 
                 // Update data-download-id to match the current directory selection
-                button.dataset.downloadId = `${directory}/${model.filenamePath}`;
+                const newDownloadId = `${directory}/${model.filenamePath}`;
+                button.dataset.downloadId = newDownloadId;
                 
                 await this.startServerDownload(url, directory, model.filenamePath);
             });
