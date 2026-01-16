@@ -1,0 +1,206 @@
+/* Downloader Modal Styles */
+.downloader-modal {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    justify-content: center;
+    align-items: center;
+}
+
+.downloader-modal-content {
+    background-color: #1e1e1e;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 1000px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.downloader-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #333;
+}
+
+.downloader-modal-header h2 {
+    margin: 0;
+    color: #fff;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.downloader-close-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.downloader-close-btn:hover {
+    background-color: #333;
+}
+
+.downloader-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+    color: #ccc;
+}
+
+/* Refresh section */
+.downloader-refresh-section {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #333;
+}
+
+.downloader-refresh-btn {
+    background-color: #0066cc;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.downloader-refresh-btn:hover {
+    background-color: #0052a3;
+}
+
+.downloader-model-count {
+    color: #888;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Models list */
+.downloader-models-list {
+    min-height: 200px;
+}
+
+.downloader-loading,
+.downloader-no-models {
+    text-align: center;
+    color: #888;
+    padding: 40px 20px;
+    font-style: italic;
+}
+
+.downloader-model-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.downloader-model-item {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 12px 16px;
+    transition: border-color 0.2s;
+}
+
+.downloader-model-item:hover {
+    border-color: #4a4a4a;
+}
+
+.downloader-model-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.downloader-model-index {
+    color: #666;
+    font-weight: 600;
+    min-width: 24px;
+}
+
+.downloader-model-filename {
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    flex: 1;
+    word-break: break-word;
+}
+
+.downloader-model-extension {
+    background-color: #0066cc;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.downloader-model-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-left: 32px;
+}
+
+.downloader-model-path,
+.downloader-model-node {
+    color: #999;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.downloader-model-path {
+    font-family: monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.downloader-model-node {
+    color: #aaa;
+}
+
+/* Button styling */
+#downloader-button {
+    background-color: #4a4a4a;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+#downloader-button:hover {
+    background-color: #5a5a5a;
+}
