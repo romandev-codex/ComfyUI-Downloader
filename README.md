@@ -13,6 +13,11 @@ A powerful and user-friendly extension for ComfyUI that adds a built-in model do
 - ⏸️ **Download Control**: Cancel downloads in progress with queue management
 - 🎨 **Clean UI**: Modal-based interface that integrates seamlessly with ComfyUI
 
+![Quick Demo](https://github.com/user-attachments/assets/438417a2-fcb6-4b69-8fca-aafa3c4896af)
+
+👉 [Watch Full Video](https://github.com/user-attachments/assets/4b9501cc-8017-47f9-9573-93ee6770bdb2)
+
+
 ## Installation
 
 ### Method 1: ComfyUI Manager (Recommended)
