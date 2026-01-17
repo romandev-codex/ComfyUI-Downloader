@@ -616,17 +616,29 @@ export class DownloaderUI {
                 if (node.properties && Array.isArray(node.properties.models) && node.properties.models.length > 0) {
                     node.properties.models.forEach((model) => {
                         const filename = model.name || model.filename;
-                        if (filename && !modelsFound.has(filename)) {
-                            modelsFound.set(filename, {
-                                filename: filename,
-                                filenamePath: filename,
-                                fullPath: model.directory ? `${model.directory}/${filename}` : filename,
-                                extension: '.' + filename.split('.').pop().toLowerCase(),
-                                url: model.url || null,
-                                directory: model.directory || null,
-                                nodeType: node.type || 'Unknown',
-                                nodeTitle: node.title || node.type || 'Unknown'
-                            });
+                        if (filename) {
+                            if (modelsFound.has(filename)) {
+                                // Only update URL if present
+                                const existing = modelsFound.get(filename);
+                                if (model.url) {
+                                    existing.url = model.url;
+                                }
+                                if (model.directory && !existing.directory) {
+                                    existing.directory = model.directory;
+                                }
+                            } else {
+                                // Add new model entry
+                                modelsFound.set(filename, {
+                                    filename: filename,
+                                    filenamePath: filename,
+                                    fullPath: model.directory ? `${model.directory}/${filename}` : filename,
+                                    extension: '.' + filename.split('.').pop().toLowerCase(),
+                                    url: model.url || null,
+                                    directory: model.directory || null,
+                                    nodeType: node.type || 'Unknown',
+                                    nodeTitle: node.title || node.type || 'Unknown'
+                                });
+                            }
                         }
                     });
                     return; // Skip widgets_values if models property is present
