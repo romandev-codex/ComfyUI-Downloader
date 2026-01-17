@@ -17,6 +17,7 @@ A powerful and user-friendly extension for ComfyUI that adds a built-in model do
 
 👉 [Watch Full Video](https://github.com/user-attachments/assets/4b9501cc-8017-47f9-9573-93ee6770bdb2)
 
+Models urls are loaded from workflow or https://github.com/Comfy-Org/ComfyUI-Manager/blob/main/model-list.json
 
 ## Installation
 
