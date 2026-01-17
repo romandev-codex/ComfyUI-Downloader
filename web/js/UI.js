@@ -10,6 +10,8 @@ export class DownloaderUI {
         this.modelListCache = null; // Cache for model-list.json
         this.modelExtensionsCache = null; // Cache for supported extensions
         this.folderNamesCache = null; // Cache for folder names
+        this.objectInfoCache = null; // Cache for object_info
+        this.availableFilesCache = null; // Cache for parsed available files
         this.downloadStates = new Map(); // Track download states
         this.setupDownloadListeners();
     }
@@ -280,6 +282,117 @@ export class DownloaderUI {
             console.warn("[DownloaderUI] Error loading folder names:", error);
             return ['checkpoints', 'loras', 'vae', 'controlnet', 'upscale_models'];
         }
+    }
+
+    /**
+     * Load object_info from ComfyUI API to get available files
+     */
+    async loadObjectInfo() {
+        if (this.objectInfoCache) {
+            return this.objectInfoCache;
+        }
+
+        try {
+            const response = await api.fetchApi('/object_info');
+            if (!response.ok) {
+                console.warn("[DownloaderUI] Failed to load object_info");
+                return null;
+            }
+            this.objectInfoCache = await response.json();
+            return this.objectInfoCache;
+        } catch (error) {
+            console.warn("[DownloaderUI] Error loading object_info:", error);
+            return null;
+        }
+    }
+
+    /**
+     * Parse object_info to extract available files by folder
+     * Returns a Map: folder -> Set of filenames
+     */
+    async getAvailableFiles() {
+        if (this.availableFilesCache) {
+            return this.availableFilesCache;
+        }
+
+        const objectInfo = await this.loadObjectInfo();
+        if (!objectInfo) {
+            return new Map();
+        }
+
+        const availableFiles = new Map();
+
+        // Iterate through all node types
+        for (const [nodeType, nodeData] of Object.entries(objectInfo)) {
+            if (!nodeData.input || !nodeData.input.required) {
+                continue;
+            }
+
+            // Check each input parameter
+            for (const [paramName, paramData] of Object.entries(nodeData.input.required)) {
+                if (!Array.isArray(paramData) || paramData.length === 0) {
+                    continue;
+                }
+
+                const options = paramData[0];
+                if (!Array.isArray(options)) {
+                    continue;
+                }
+
+                // Look for __folder__path__ prefix
+                const folderPathItem = options.find(item => 
+                    typeof item === 'string' && item.startsWith('__folder__path__')
+                );
+
+                if (folderPathItem) {
+                    const folder = folderPathItem.replace('__folder__path__', '');
+                    
+                    if (!availableFiles.has(folder)) {
+                        availableFiles.set(folder, new Set());
+                    }
+
+                    // Add all other items (filenames) to this folder
+                    options.forEach(item => {
+                        if (typeof item === 'string' && !item.startsWith('__folder__path__')) {
+                            availableFiles.get(folder).add(item);
+                        }
+                    });
+                }
+            }
+        }
+
+        this.availableFilesCache = availableFiles;
+        return availableFiles;
+    }
+
+    /**
+     * Check if a file exists in the available files
+     * @param {string} folder - The folder name
+     * @param {string} filename - The filename (can include subdirectories)
+     * @returns {boolean} - True if file exists
+     */
+    async isFileDownloaded(folder, filename) {
+        const availableFiles = await this.getAvailableFiles();
+        
+        if (!availableFiles.has(folder)) {
+            return false;
+        }
+
+        const filesInFolder = availableFiles.get(folder);
+        
+        // Check exact match
+        if (filesInFolder.has(filename)) {
+            return true;
+        }
+
+        // Check if any file ends with this filename (for subdirectory cases)
+        for (const file of filesInFolder) {
+            if (file.endsWith(filename) || file.endsWith('/' + filename)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -581,9 +694,12 @@ export class DownloaderUI {
 
         listContainer.appendChild(modelList);
 
+        // Pre-load available files to populate cache (prevents multiple API calls)
+        await this.getAvailableFiles();
+
         // Add event listeners to download buttons
         const downloadButtons = listContainer.querySelectorAll('.downloader-download-btn');
-        downloadButtons.forEach((button) => {
+        downloadButtons.forEach(async (button) => {
             const modelIndex = parseInt(button.dataset.modelIndex);
             const model = this.modelsInWorkflow[modelIndex];
             
@@ -597,8 +713,19 @@ export class DownloaderUI {
                 // Restore button state based on existing download
                 this.updateDownloadButton(downloadId);
             } else {
-                // Set initial action state for new downloads
-                button.dataset.action = 'download';
+                // Check if file already exists in ComfyUI
+                const fileExists = await this.isFileDownloaded(model.directory || '', model.filenamePath);
+                if (fileExists) {
+                    // Mark as downloaded
+                    this.downloadStates.set(downloadId, {
+                        status: 'completed',
+                        progress: 100
+                    });
+                    this.updateDownloadButton(downloadId);
+                } else {
+                    // Set initial action state for new downloads
+                    button.dataset.action = 'download';
+                }
             }
             
             button.addEventListener('click', async (e) => {
