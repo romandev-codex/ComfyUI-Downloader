@@ -1,0 +1,2 @@
+aiohttp
+hf_transfer
