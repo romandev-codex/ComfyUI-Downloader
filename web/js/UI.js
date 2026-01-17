@@ -434,7 +434,7 @@ export class DownloaderUI {
                             <select 
                                 id="downloader-free-folder" 
                                 class="downloader-free-input"
-                                style="flex: 1; min-width: 150px; padding: 8px;"
+                                style="flex: 1; min-width: 150px; padding: 5px;"
                             >
                                 <option value="">Select folder...</option>
                             </select>
@@ -443,18 +443,18 @@ export class DownloaderUI {
                                 id="downloader-free-url" 
                                 class="downloader-free-input"
                                 placeholder="Download URL..." 
-                                style="flex: 2; min-width: 300px; padding: 8px;"
+                                style="flex: 2; min-width: 300px; padding: 5px;"
                             />
                             <input 
                                 type="text" 
                                 id="downloader-free-filename" 
                                 class="downloader-free-input"
                                 placeholder="Filename (auto-detected)" 
-                                style="flex: 1; min-width: 200px; padding: 8px;"
+                                style="flex: 1; min-width: 200px; padding: 5px;"
                             />
                             <button 
                                 id="downloader-free-download-btn"
-                                style="padding: 8px 20px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 3px; font-weight: bold;"
+                                style="padding: 6px 20px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 3px; font-weight: bold;"
                             >
                                 Download
                             </button>
@@ -764,11 +764,11 @@ export class DownloaderUI {
                     <div class="downloader-model-node">
                         Used in: ${this.escapeHtml(model.nodeTitle)}
                     </div>
-                    <div class="downloader-model-url">
+                    <div class="downloader-model-url" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                         <select 
                             class="downloader-directory-input" 
                             data-model-index="${index}"
-                            style="width: 20%; box-sizing: border-box; margin: 5px; padding: 2px;"
+                            style="flex: 1; min-width: 150px; padding: 5px;"
                         >
                             <option value="">Select folder...</option>
                             ${folderNames.map(folder => `
@@ -783,13 +783,13 @@ export class DownloaderUI {
                             placeholder="Download URL..." 
                             value="${this.escapeHtml(model.url || '')}"
                             data-model-index="${index}"
-                            style="width: 55%; box-sizing: border-box; margin: 5px; padding: 2px;"
+                            style="flex: 2; min-width: 300px; padding: 5px;"
                         />
                         <button 
                             class="downloader-download-btn" 
                             data-model-index="${index}"
                             data-download-id="${this.escapeHtml(model.directory || '')}/${this.escapeHtml(model.filenamePath)}"
-                            style="width: 18%; box-sizing: border-box; margin: 5px; padding: 5px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 3px;"
+                            style="padding: 6px 20px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 3px;"
                         >
                             Download
                         </button>
