@@ -550,12 +550,33 @@ export class DownloaderUI {
                 return;
             }
             
+            // Create a new model entry for manual download
+            const extension = '.' + filename.split('.').pop().toLowerCase();
+            const newModel = {
+                filename: filename,
+                filenamePath: filename,
+                fullPath: `${folder}/${filename}`,
+                extension: extension,
+                url: url,
+                directory: folder,
+                nodeType: 'Manual Download',
+                nodeTitle: 'Manual Download'
+            };
+            
+            // Prepend to models array
+            this.modelsInWorkflow.unshift(newModel);
+            
+            // Refresh the UI to show the new model
+            await this.displayModels(this.modelsInWorkflow);
+            
+            // Start the download
             const result = await this.startServerDownload(url, folder, filename);
             
             // Clear inputs on successful download
             if (result && result.success) {
                 filenameInputBtn.value = '';
                 urlInputBtn.value = '';
+                folderInput.value = '';
             }
         });
 
