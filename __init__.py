@@ -514,23 +514,33 @@ async def cancel_download(request):
             )
 
         # Check if download is queued (not started yet)
+        was_queued = any(d["download_id"] == download_id for d in download_queue)
         download_queue[:] = [d for d in download_queue if d["download_id"] != download_id]
 
         # Check if download is active
         if download_id in download_control:
             download_control[download_id]["cancelled"] = True
+            # Give it a moment to detect cancellation and cleanup
+            await asyncio.sleep(0.1)
 
-        # Update status
+        # Remove from active downloads
         if download_id in active_downloads:
-            active_downloads[download_id]["status"] = "cancelled"
+            del active_downloads[download_id]
+
+        # Cleanup control if still present
+        if download_id in download_control:
+            del download_control[download_id]
 
         await PromptServer.instance.send("server_download_cancelled", {
             "download_id": download_id
         })
 
+        logging.info(f"[ComfyUI-Downloader] Cancelled download: {download_id} (was_queued: {was_queued})")
+
         return web.json_response({"success": True, "message": "Download cancelled"})
 
     except Exception as e:
+        logging.error(f"[ComfyUI-Downloader] Error cancelling download: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
