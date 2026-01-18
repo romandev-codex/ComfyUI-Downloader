@@ -142,15 +142,6 @@ export class DownloaderUI {
         }
 
         try {
-            const download_id = `${savePath}/${filename}`;
-
-            // Mark as queued immediately
-            this.downloadStates.set(download_id, {
-                status: 'queued',
-                progress: 0
-            });
-            this.updateDownloadButton(download_id);
-
             const response = await api.fetchApi(`/${API_PREFIX}/server_download/start`, {
                 method: "POST",
                 headers: {
@@ -168,10 +159,6 @@ export class DownloaderUI {
 
             // Handle file override confirmation
             if (result.confirm_override) {
-                // Reset button state
-                this.downloadStates.delete(download_id);
-                this.updateDownloadButton(download_id);
-                
                 // Show simple confirmation dialog
                 const confirmed = confirm(`${result.message}\n\nDo you want to overwrite it?`);
                 
@@ -180,26 +167,23 @@ export class DownloaderUI {
                     return await this.startServerDownload(url, savePath, filename, true);
                 } else {
                     // User cancelled
-                    this.downloadStates.delete(download_id);
-                    const button = this.modal.querySelector(`[data-download-id="${download_id}"]`);
-                    if (button) {
-                        button.textContent = 'Download';
-                        button.disabled = false;
-                        button.style.backgroundColor = '#4CAF50';
-                    }
                     return { success: false, cancelled: true };
                 }
             }
 
-            if (response.ok) {
+            if (response.ok && result.success) {
+                const download_id = result.download_id;
+                
+                // Mark as queued with the real download_id from backend
+                this.downloadStates.set(download_id, {
+                    status: 'queued',
+                    progress: 0
+                });
+                this.updateDownloadButton(download_id);
+                
                 console.log(`[DownloaderUI] Download started: ${download_id}`);
                 return { success: true, download_id };
             } else {
-                this.downloadStates.set(download_id, {
-                    status: 'error',
-                    error: result.error || 'Unknown error'
-                });
-                this.updateDownloadButton(download_id);
                 alert(`Download failed: ${result.error}`);
                 return { success: false, error: result.error };
             }
@@ -572,6 +556,15 @@ export class DownloaderUI {
             // Start the download
             const result = await this.startServerDownload(url, folder, filename);
             
+            // If download started successfully, update the button's download_id
+            if (result && result.success && result.download_id) {
+                // Find the newly added model's button and update its download_id
+                const modelButtons = modal.querySelectorAll('.downloader-download-btn');
+                if (modelButtons.length > 0) {
+                    modelButtons[0].dataset.downloadId = result.download_id;
+                }
+            }
+            
             // Clear inputs on successful download
             if (result && result.success) {
                 filenameInputBtn.value = '';
@@ -821,7 +814,7 @@ export class DownloaderUI {
                         <button 
                             class="downloader-download-btn" 
                             data-model-index="${index}"
-                            data-download-id="${this.escapeHtml(model.directory || '')}/${this.escapeHtml(model.filenamePath)}"
+                            data-download-id=""
                             style="padding: 6px 20px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 3px;"
                         >
                             Download
@@ -844,29 +837,12 @@ export class DownloaderUI {
             const modelIndex = parseInt(button.dataset.modelIndex);
             const model = this.modelsInWorkflow[modelIndex];
             
-            // Set the download ID before checking state
-            const downloadId = `${model.directory || ''}/${model.filenamePath}`;
-            button.dataset.downloadId = downloadId;
-            
-            // Check if there's an existing download state for this model
-            const existingState = this.downloadStates.get(downloadId);
-            if (existingState) {
-                // Restore button state based on existing download
-                this.updateDownloadButton(downloadId);
-            } else {
-                // Check if file already exists in ComfyUI
-                const fileExists = await this.isFileDownloaded(model.directory || '', model.filenamePath);
-                if (fileExists) {
-                    // Mark as downloaded
-                    this.downloadStates.set(downloadId, {
-                        status: 'completed',
-                        progress: 100
-                    });
-                    this.updateDownloadButton(downloadId);
-                } else {
-                    // Set initial action state for new downloads
-                    button.dataset.action = 'download';
-                }
+            // Check if file already exists in ComfyUI
+            const fileExists = await this.isFileDownloaded(model.directory || '', model.filenamePath);
+            if (fileExists) {
+                button.textContent = '✓ Downloaded';
+                button.style.backgroundColor = '#4CAF50';
+                button.disabled = false;
             }
             
             button.addEventListener('click', async (e) => {
@@ -897,11 +873,13 @@ export class DownloaderUI {
                     return;
                 }
                 
-                // Update data-download-id to match the current directory selection
-                const newDownloadId = `${directory}/${model.filenamePath}`;
-                button.dataset.downloadId = newDownloadId;
+                // Start download and get the real download_id from backend
+                const result = await this.startServerDownload(url, directory, model.filenamePath);
                 
-                await this.startServerDownload(url, directory, model.filenamePath);
+                // Update button's download_id with the one returned from backend
+                if (result && result.success && result.download_id) {
+                    button.dataset.downloadId = result.download_id;
+                }
             });
         });
     }

@@ -67,25 +67,19 @@ async def start_download(request):
                 status=400
             )
 
-        # Security: Validate filename to prevent path traversal attacks
-        # Allow forward slashes for subfolders, but prevent backslashes and path traversal
-        if "\\" in filename:
-            return web.json_response(
-                {"error": "Invalid filename: backslashes not allowed"},
-                status=400
-            )
-
-        if ".." in filename or filename.startswith("/") or filename.startswith("~"):
+        # Security: Normalize the path first - convert backslashes to forward slashes
+        # This allows Windows-style paths (subfolder\file.ext) while maintaining security
+        safe_filename = os.path.normpath(filename).replace("\\", "/")
+        
+        # Validate filename to prevent path traversal attacks
+        if ".." in safe_filename or safe_filename.startswith("/") or safe_filename.startswith("~"):
             return web.json_response(
                 {"error": "Invalid filename: path traversal patterns detected"},
                 status=400
             )
 
-        # Normalize the path - convert to forward slashes and remove any tricks
-        safe_filename = os.path.normpath(filename).replace("\\", "/")
-        
         # Ensure it doesn't try to escape the directory
-        if safe_filename.startswith("/") or safe_filename.startswith("../") or "/../" in safe_filename:
+        if safe_filename.startswith("../") or "/../" in safe_filename:
             return web.json_response(
                 {"error": "Invalid filename: path traversal detected"},
                 status=400
@@ -150,8 +144,9 @@ async def start_download(request):
         # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        # Mark as queued
-        download_id = f"{save_path}/{safe_filename}"
+        # Mark as queued - use SHA256 hash for unique, URL-safe download_id
+        import hashlib
+        download_id = hashlib.sha256(f"{save_path}/{safe_filename}".encode()).hexdigest()
         active_downloads[download_id] = {
             "url": url,
             "filename": safe_filename,
@@ -274,6 +269,7 @@ async def download_file(url, output_path, download_id):
             "cancelled": False,
             "total_downloaded": 0,
             "last_progress_time": time.time(),
+            "last_report_time": 0,  # Shared timestamp for throttling progress updates
             "lock": asyncio.Lock()
         }
 
@@ -432,23 +428,22 @@ async def download_chunk_with_progress(session, url, start, end, output_path, ch
                         download_control[download_id]["total_downloaded"] += chunk_len
                         download_control[download_id]["last_progress_time"] = time.time()
                         total_downloaded = download_control[download_id]["total_downloaded"]
+                        
+                        # Send progress updates every 100ms to avoid spam (shared across all chunks)
+                        current_time = time.time()
+                        if (current_time - download_control[download_id]["last_report_time"]) >= 0.1:
+                            download_control[download_id]["last_report_time"] = current_time
+                            
+                            progress = round((total_downloaded / total_size) * 100, 2)
+                            active_downloads[download_id]["progress"] = progress
+                            active_downloads[download_id]["downloaded"] = total_downloaded
 
-                    # Send progress updates every 100ms to avoid spam (only from chunk 0)
-                    import time
-                    current_time = time.time()
-                    if chunk_index == 0 and (current_time - last_report_time) >= 0.1:
-                        progress = round((total_downloaded / total_size) * 100, 2)
-                        active_downloads[download_id]["progress"] = progress
-                        active_downloads[download_id]["downloaded"] = total_downloaded
-
-                        await PromptServer.instance.send("server_download_progress", {
-                            "download_id": download_id,
-                            "progress": progress,
-                            "downloaded": total_downloaded,
-                            "total": total_size
-                        })
-
-                        last_report_time = current_time
+                            await PromptServer.instance.send("server_download_progress", {
+                                "download_id": download_id,
+                                "progress": progress,
+                                "downloaded": total_downloaded,
+                                "total": total_size
+                            })
 
     except Exception as e:
         logging.error(f"[ComfyUI-Downloader] Error in chunk {chunk_index} for {download_id}: {e}")
