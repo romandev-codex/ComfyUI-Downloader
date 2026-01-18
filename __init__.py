@@ -565,6 +565,7 @@ async def get_supported_extensions(request):
     try:
         extensions = list(folder_paths.supported_pt_extensions)
         extensions.append(".onnx")
+        extensions.append(".gguf")        
         return web.json_response({
             "success": True,
             "extensions": extensions
