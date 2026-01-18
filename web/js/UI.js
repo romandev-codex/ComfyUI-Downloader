@@ -174,12 +174,11 @@ export class DownloaderUI {
             if (response.ok && result.success) {
                 const download_id = result.download_id;
                 
-                // Mark as queued with the real download_id from backend
+                // Store state - button will be updated by caller after setting download_id
                 this.downloadStates.set(download_id, {
                     status: 'queued',
                     progress: 0
                 });
-                this.updateDownloadButton(download_id);
                 
                 console.log(`[DownloaderUI] Download started: ${download_id}`);
                 return { success: true, download_id };
@@ -562,6 +561,8 @@ export class DownloaderUI {
                 const modelButtons = modal.querySelectorAll('.downloader-download-btn');
                 if (modelButtons.length > 0) {
                     modelButtons[0].dataset.downloadId = result.download_id;
+                    // Update button appearance
+                    this.updateDownloadButton(result.download_id);
                 }
             }
             
@@ -879,6 +880,8 @@ export class DownloaderUI {
                 // Update button's download_id with the one returned from backend
                 if (result && result.success && result.download_id) {
                     button.dataset.downloadId = result.download_id;
+                    // Now update the button appearance with the stored state
+                    this.updateDownloadButton(result.download_id);
                 }
             });
         });
