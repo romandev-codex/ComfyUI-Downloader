@@ -6,6 +6,7 @@ Adds a Downloader button to ComfyUI interface with modal UI
 import os
 import logging
 import asyncio
+import shutil
 import folder_paths
 from aiohttp import web
 from server import PromptServer
@@ -77,6 +78,22 @@ def _is_downloadable_folder(folder_name, paths):
     return any(_looks_like_model_path(path) for path in paths)
 
 
+def _resolve_output_dir_for_save_path(save_path):
+    """Resolve and validate output directory for a given save_path."""
+    mapped_folder = folder_paths.map_legacy(save_path)
+    if mapped_folder not in folder_paths.folder_names_and_paths:
+        raise ValueError(f"Invalid save_path: {save_path} not found in folder_paths")
+
+    paths, _ = folder_paths.folder_names_and_paths[mapped_folder]
+    if not paths:
+        raise ValueError(f"No valid paths configured for {save_path}")
+
+    if not _is_downloadable_folder(mapped_folder, paths):
+        raise ValueError(f"Invalid save_path for download: {save_path}")
+
+    return os.path.abspath(paths[0]), mapped_folder
+
+
 @PromptServer.instance.routes.post(f"/{API_PREFIX}/server_download/start")
 async def start_download(request):
     """Start downloading a model file to the server"""
@@ -112,27 +129,13 @@ async def start_download(request):
             )
 
         # Get the first path for this folder type from folder_paths
-        mapped_folder = folder_paths.map_legacy(save_path)
-        if mapped_folder not in folder_paths.folder_names_and_paths:
+        try:
+            output_dir, mapped_folder = _resolve_output_dir_for_save_path(save_path)
+        except ValueError as e:
             return web.json_response(
-                {"error": f"Invalid save_path: {save_path} not found in folder_paths"},
+                {"error": str(e)},
                 status=400
             )
-
-        paths, _ = folder_paths.folder_names_and_paths[mapped_folder]
-        if not paths:
-            return web.json_response(
-                {"error": f"No valid paths configured for {save_path}"},
-                status=400
-            )
-        if not _is_downloadable_folder(mapped_folder, paths):
-            return web.json_response(
-                {"error": f"Invalid save_path for download: {save_path}"},
-                status=400
-            )
-
-        # Use the first path from the configured paths
-        output_dir = os.path.abspath(paths[0])
         output_path = os.path.join(output_dir, safe_filename)
 
         # Final security check: ensure the resolved path is within the configured directory
@@ -657,6 +660,38 @@ async def get_available_files(request):
         })
     except Exception as e:
         logging.error(f"[ComfyUI-Downloader] Error getting available files: {e}")
+        return web.json_response(
+            {"error": str(e)},
+            status=500
+        )
+
+
+@PromptServer.instance.routes.get(f"/{API_PREFIX}/disk_space")
+async def get_disk_space(request):
+    """Get disk usage details for models dir or a specific save_path target."""
+    try:
+        save_path = (request.query.get("save_path") or "").strip()
+
+        if save_path:
+            try:
+                target_path, mapped_folder = _resolve_output_dir_for_save_path(save_path)
+            except ValueError as e:
+                return web.json_response({"error": str(e)}, status=400)
+        else:
+            target_path = os.path.abspath(folder_paths.models_dir)
+            mapped_folder = None
+
+        usage = shutil.disk_usage(target_path)
+        return web.json_response({
+            "success": True,
+            "save_path": mapped_folder,
+            "path": target_path,
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free
+        })
+    except Exception as e:
+        logging.error(f"[ComfyUI-Downloader] Error getting disk space: {e}")
         return web.json_response(
             {"error": str(e)},
             status=500

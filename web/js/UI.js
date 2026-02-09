@@ -286,6 +286,87 @@ export class DownloaderUI {
         }
     }
 
+    formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) {
+            return 'n/a';
+        }
+
+        const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        let value = bytes;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        const decimals = unitIndex <= 1 ? 0 : 1;
+        return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+    }
+
+    async loadDiskSpace(savePath = '') {
+        try {
+            const normalized = (savePath || '').trim();
+            const query = normalized ? `?save_path=${encodeURIComponent(normalized)}` : '';
+            const response = await api.fetchApi(`/${API_PREFIX}/disk_space${query}`);
+            if (!response.ok) {
+                return null;
+            }
+            const data = await response.json();
+            if (!data.success) {
+                return null;
+            }
+            return data;
+        } catch (error) {
+            console.warn("[DownloaderUI] Error loading disk space:", error);
+            return null;
+        }
+    }
+
+    async updateManualDiskSpaceLabel(savePath = '') {
+        if (!this.modal) {
+            return;
+        }
+
+        const label = this.modal.querySelector("#downloader-manual-disk-space");
+        if (!label) {
+            return;
+        }
+
+        const normalized = (savePath || '').trim();
+        if (!normalized) {
+            label.textContent = 'Free disk space: select a folder';
+            return;
+        }
+
+        label.textContent = 'Free disk space: checking...';
+        const data = await this.loadDiskSpace(normalized);
+        if (!data) {
+            label.textContent = 'Free disk space: unavailable';
+            return;
+        }
+
+        label.textContent = `Free disk space (${normalized}): ${this.formatBytes(data.free_bytes)}`;
+    }
+
+    async updateGlobalDiskSpaceLabel() {
+        if (!this.modal) {
+            return;
+        }
+
+        const label = this.modal.querySelector("#downloader-global-disk-space");
+        if (!label) {
+            return;
+        }
+
+        label.textContent = 'Models storage free: checking...';
+        const data = await this.loadDiskSpace('');
+        if (!data) {
+            label.textContent = 'Models storage free: unavailable';
+            return;
+        }
+
+        label.textContent = `Models storage free: ${this.formatBytes(data.free_bytes)}`;
+    }
+
     /**
      * Load available files by folder from Downloader backend endpoint
      * Returns a Map: folder -> Set of filenames
@@ -462,12 +543,18 @@ export class DownloaderUI {
                                 Download
                             </button>
                         </div>
+                        <div id="downloader-manual-disk-space" style="margin-top: 8px; font-size: 12px; opacity: 0.85;">
+                            Free disk space: select a folder
+                        </div>
                     </div>
                     <div class="downloader-refresh-section">
                         <button class="downloader-refresh-btn" id="downloader-refresh-btn">
                             Refresh Models
                         </button>
                         <span class="downloader-model-count" id="downloader-model-count">0 models found</span>
+                        <span id="downloader-global-disk-space" style="margin-left: 10px; font-size: 12px; opacity: 0.85;">
+                            Models storage free: checking...
+                        </span>
                     </div>
                     <div class="downloader-models-list" id="downloader-models-list">
                         <p class="downloader-loading">Click "Refresh Models" to scan the current workflow...</p>
@@ -489,6 +576,13 @@ export class DownloaderUI {
         // Auto-extract filename from URL
         const urlInput = modal.querySelector("#downloader-free-url");
         const filenameInput = modal.querySelector("#downloader-free-filename");
+        const folderSelectInput = modal.querySelector("#downloader-free-folder");
+
+        if (folderSelectInput) {
+            folderSelectInput.addEventListener("change", async () => {
+                await this.updateManualDiskSpaceLabel(folderSelectInput.value.trim());
+            });
+        }
         
         urlInput.addEventListener("input", () => {
             const url = urlInput.value.trim();
@@ -604,6 +698,7 @@ export class DownloaderUI {
                 urlInputBtn.value = '';
                 folderInput.value = '';
                 subfolderInputBtn.value = '';
+                await this.updateManualDiskSpaceLabel('');
             }
         });
 
@@ -1004,7 +1099,10 @@ export class DownloaderUI {
                 option.textContent = folder;
                 folderSelect.appendChild(option);
             });
+            await this.updateManualDiskSpaceLabel(folderSelect.value.trim());
         }
+
+        await this.updateGlobalDiskSpaceLabel();
         
         // Automatically scan for models when opening
         this.scanWorkflowForModels();
