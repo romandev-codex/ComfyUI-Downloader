@@ -1,6 +1,26 @@
 import { api } from "../../../scripts/api.js";
 
 const API_PREFIX = "35b631e00fa2dbc173ee4a5f899cba8f";
+const MODEL_DIR_NAME_MAP = {
+    checkpoints: "checkpoints",
+    checkpoint: "checkpoints",
+    unclip: "checkpoints",
+    text_encoders: "text_encoders",
+    clip: "text_encoders",
+    vae: "vae",
+    lora: "loras",
+    "t2i-adapter": "controlnet",
+    "t2i-style": "controlnet",
+    controlnet: "controlnet",
+    clip_vision: "clip_vision",
+    gligen: "gligen",
+    upscale: "upscale_models",
+    embedding: "embeddings",
+    embeddings: "embeddings",
+    unet: "diffusion_models",
+    diffusion_model: "diffusion_models",
+    diffusion_models: "diffusion_models",
+};
 
 export class DownloaderUI {
     constructor() {
@@ -10,7 +30,6 @@ export class DownloaderUI {
         this.modelListCache = null; // Cache for model-list.json
         this.modelExtensionsCache = null; // Cache for supported extensions
         this.folderNamesCache = null; // Cache for folder names
-        this.objectInfoCache = null; // Cache for object_info
         this.availableFilesCache = null; // Cache for parsed available files
         this.downloadStates = new Map(); // Track download states
         this.setupDownloadListeners();
@@ -267,30 +286,89 @@ export class DownloaderUI {
         }
     }
 
-    /**
-     * Load object_info from ComfyUI API to get available files
-     */
-    async loadObjectInfo() {
-        if (this.objectInfoCache) {
-            return this.objectInfoCache;
+    formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) {
+            return 'n/a';
         }
 
+        const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        let value = bytes;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
+        }
+        const decimals = unitIndex <= 1 ? 0 : 1;
+        return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+    }
+
+    async loadDiskSpace(savePath = '') {
         try {
-            const response = await api.fetchApi('/object_info');
+            const normalized = (savePath || '').trim();
+            const query = normalized ? `?save_path=${encodeURIComponent(normalized)}` : '';
+            const response = await api.fetchApi(`/${API_PREFIX}/disk_space${query}`);
             if (!response.ok) {
-                console.warn("[DownloaderUI] Failed to load object_info");
                 return null;
             }
-            this.objectInfoCache = await response.json();
-            return this.objectInfoCache;
+            const data = await response.json();
+            if (!data.success) {
+                return null;
+            }
+            return data;
         } catch (error) {
-            console.warn("[DownloaderUI] Error loading object_info:", error);
+            console.warn("[DownloaderUI] Error loading disk space:", error);
             return null;
         }
     }
 
+    async updateManualDiskSpaceLabel(savePath = '') {
+        if (!this.modal) {
+            return;
+        }
+
+        const label = this.modal.querySelector("#downloader-manual-disk-space");
+        if (!label) {
+            return;
+        }
+
+        const normalized = (savePath || '').trim();
+        if (!normalized) {
+            label.textContent = 'Free disk space: select a folder';
+            return;
+        }
+
+        label.textContent = 'Free disk space: checking...';
+        const data = await this.loadDiskSpace(normalized);
+        if (!data) {
+            label.textContent = 'Free disk space: unavailable';
+            return;
+        }
+
+        label.textContent = `Free disk space (${normalized}): ${this.formatBytes(data.free_bytes)}`;
+    }
+
+    async updateGlobalDiskSpaceLabel() {
+        if (!this.modal) {
+            return;
+        }
+
+        const label = this.modal.querySelector("#downloader-global-disk-space");
+        if (!label) {
+            return;
+        }
+
+        label.textContent = 'Models storage free: checking...';
+        const data = await this.loadDiskSpace('');
+        if (!data) {
+            label.textContent = 'Models storage free: unavailable';
+            return;
+        }
+
+        label.textContent = `Models storage free: ${this.formatBytes(data.free_bytes)}`;
+    }
+
     /**
-     * Parse object_info to extract available files by folder
+     * Load available files by folder from Downloader backend endpoint
      * Returns a Map: folder -> Set of filenames
      */
     async getAvailableFiles() {
@@ -298,50 +376,30 @@ export class DownloaderUI {
             return this.availableFilesCache;
         }
 
-        const objectInfo = await this.loadObjectInfo();
-        if (!objectInfo) {
-            return new Map();
-        }
-
         const availableFiles = new Map();
-
-        // Iterate through all node types
-        for (const [nodeType, nodeData] of Object.entries(objectInfo)) {
-            if (!nodeData.input || !nodeData.input.required) {
-                continue;
+        try {
+            const response = await api.fetchApi(`/${API_PREFIX}/available_files`);
+            if (!response.ok) {
+                console.warn("[DownloaderUI] Failed to load available files");
+                return availableFiles;
             }
 
-            // Check each input parameter
-            for (const [paramName, paramData] of Object.entries(nodeData.input.required)) {
-                if (!Array.isArray(paramData) || paramData.length === 0) {
-                    continue;
-                }
-
-                const options = paramData[0];
-                if (!Array.isArray(options)) {
-                    continue;
-                }
-
-                // Look for __folder__path__ prefix
-                const folderPathItem = options.find(item => 
-                    typeof item === 'string' && item.startsWith('__folder__path__')
-                );
-
-                if (folderPathItem) {
-                    const folder = folderPathItem.replace('__folder__path__', '');
-                    
-                    if (!availableFiles.has(folder)) {
-                        availableFiles.set(folder, new Set());
-                    }
-
-                    // Add all other items (filenames) to this folder
-                    options.forEach(item => {
-                        if (typeof item === 'string' && !item.startsWith('__folder__path__')) {
-                            availableFiles.get(folder).add(item);
-                        }
-                    });
-                }
+            const data = await response.json();
+            if (!data.success || typeof data.files !== 'object' || data.files === null) {
+                return availableFiles;
             }
+
+            for (const [folder, files] of Object.entries(data.files)) {
+                if (!Array.isArray(files)) {
+                    continue;
+                }
+                const normalized = files
+                    .filter(f => typeof f === 'string')
+                    .map(f => f.replace(/\\/g, '/'));
+                availableFiles.set(folder, new Set(normalized));
+            }
+        } catch (error) {
+            console.warn("[DownloaderUI] Error loading available files:", error);
         }
 
         this.availableFilesCache = availableFiles;
@@ -356,6 +414,7 @@ export class DownloaderUI {
      */
     async isFileDownloaded(folder, filename) {
         const availableFiles = await this.getAvailableFiles();
+        const normalizedFilename = this.normalizeRelativePath(filename);
         
         if (!availableFiles.has(folder)) {
             return false;
@@ -364,13 +423,13 @@ export class DownloaderUI {
         const filesInFolder = availableFiles.get(folder);
         
         // Check exact match
-        if (filesInFolder.has(filename)) {
+        if (filesInFolder.has(normalizedFilename)) {
             return true;
         }
 
         // Check if any file ends with this filename (for subdirectory cases)
         for (const file of filesInFolder) {
-            if (file.endsWith(filename) || file.endsWith('/' + filename)) {
+            if (file.endsWith(normalizedFilename) || file.endsWith('/' + normalizedFilename)) {
                 return true;
             }
         }
@@ -384,18 +443,53 @@ export class DownloaderUI {
     async getModelInfo(filename) {
         const modelList = await this.loadModelList();
         if (!modelList || !Array.isArray(modelList.models)) {
-            return { url: null, directory: null };
+            return { url: null, directory: null, type: null };
         }
 
         const model = modelList.models.find(m => m.filename === filename);
         if (!model) {
-            return { url: null, directory: null };
+            return { url: null, directory: null, type: null };
         }
 
         return {
             url: model.url || null,
-            // directory: model.save_path || null
+            directory: model.save_path || model.directory || null,
+            type: model.type || null,
         };
+    }
+
+    normalizeRelativePath(path) {
+        if (!path) {
+            return '';
+        }
+        return path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    }
+
+    resolveModelDirectory(savePath, modelType, folderNameSet = null) {
+        let resolved = null;
+
+        if (savePath) {
+            if (savePath.toLowerCase() === 'default') {
+                const typeKey = (modelType || '').toLowerCase();
+                resolved = MODEL_DIR_NAME_MAP[typeKey] || null;
+            } else {
+                const normalized = this.normalizeRelativePath(savePath);
+                resolved = normalized ? normalized.split('/')[0] : null;
+            }
+        } else if (modelType) {
+            const typeKey = modelType.toLowerCase();
+            resolved = MODEL_DIR_NAME_MAP[typeKey] || null;
+        }
+
+        if (!resolved) {
+            return null;
+        }
+
+        if (folderNameSet && !folderNameSet.has(resolved)) {
+            return null;
+        }
+
+        return resolved;
     }
 
     createModal() {
@@ -435,6 +529,13 @@ export class DownloaderUI {
                                 placeholder="Filename (auto-detected)" 
                                 style="flex: 1; min-width: 200px; padding: 5px;"
                             />
+                            <input 
+                                type="text" 
+                                id="downloader-free-subfolder" 
+                                class="downloader-free-input"
+                                placeholder="Subfolder (optional), e.g. SDXL"
+                                style="flex: 1; min-width: 220px; padding: 5px;"
+                            />
                             <button 
                                 id="downloader-free-download-btn"
                                 style="padding: 6px 20px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 3px; font-weight: bold;"
@@ -442,12 +543,18 @@ export class DownloaderUI {
                                 Download
                             </button>
                         </div>
+                        <div id="downloader-manual-disk-space" style="margin-top: 8px; font-size: 12px; opacity: 0.85;">
+                            Free disk space: select a folder
+                        </div>
                     </div>
                     <div class="downloader-refresh-section">
                         <button class="downloader-refresh-btn" id="downloader-refresh-btn">
                             Refresh Models
                         </button>
                         <span class="downloader-model-count" id="downloader-model-count">0 models found</span>
+                        <span id="downloader-global-disk-space" style="margin-left: 10px; font-size: 12px; opacity: 0.85;">
+                            Models storage free: checking...
+                        </span>
                     </div>
                     <div class="downloader-models-list" id="downloader-models-list">
                         <p class="downloader-loading">Click "Refresh Models" to scan the current workflow...</p>
@@ -469,6 +576,13 @@ export class DownloaderUI {
         // Auto-extract filename from URL
         const urlInput = modal.querySelector("#downloader-free-url");
         const filenameInput = modal.querySelector("#downloader-free-filename");
+        const folderSelectInput = modal.querySelector("#downloader-free-folder");
+
+        if (folderSelectInput) {
+            folderSelectInput.addEventListener("change", async () => {
+                await this.updateManualDiskSpaceLabel(folderSelectInput.value.trim());
+            });
+        }
         
         urlInput.addEventListener("input", () => {
             const url = urlInput.value.trim();
@@ -496,9 +610,11 @@ export class DownloaderUI {
             const folderInput = modal.querySelector("#downloader-free-folder");
             const urlInputBtn = modal.querySelector("#downloader-free-url");
             const filenameInputBtn = modal.querySelector("#downloader-free-filename");
+            const subfolderInputBtn = modal.querySelector("#downloader-free-subfolder");
             
             const folder = folderInput?.value.trim();
             let filename = filenameInputBtn?.value.trim();
+            const subfolder = subfolderInputBtn?.value.trim() || '';
             const url = urlInputBtn?.value.trim();
             
             if (!url) {
@@ -532,13 +648,23 @@ export class DownloaderUI {
                 alert('Could not extract filename from URL. Please enter a filename manually.');
                 return;
             }
+
+            // Keep filename clean and use subfolder field for path segments.
+            filename = this.normalizeRelativePath(filename).split('/').pop();
+            if (!filename) {
+                alert('Invalid filename');
+                return;
+            }
+
+            const normalizedSubfolder = this.normalizeRelativePath(subfolder);
+            const filenamePath = normalizedSubfolder ? `${normalizedSubfolder}/${filename}` : filename;
             
             // Create a new model entry for manual download
             const extension = '.' + filename.split('.').pop().toLowerCase();
             const newModel = {
                 filename: filename,
-                filenamePath: filename,
-                fullPath: `${folder}/${filename}`,
+                filenamePath: filenamePath,
+                fullPath: `${folder}/${filenamePath}`,
                 extension: extension,
                 url: url,
                 directory: folder,
@@ -553,7 +679,7 @@ export class DownloaderUI {
             await this.displayModels(this.modelsInWorkflow);
             
             // Start the download
-            const result = await this.startServerDownload(url, folder, filename);
+            const result = await this.startServerDownload(url, folder, filenamePath);
             
             // If download started successfully, update the button's download_id
             if (result && result.success && result.download_id) {
@@ -571,6 +697,8 @@ export class DownloaderUI {
                 filenameInputBtn.value = '';
                 urlInputBtn.value = '';
                 folderInput.value = '';
+                subfolderInputBtn.value = '';
+                await this.updateManualDiskSpaceLabel('');
             }
         });
 
@@ -592,6 +720,8 @@ export class DownloaderUI {
         
         // Model file extensions to look for - fetch from API
         const modelExtensions = await this.loadModelExtensions();
+        const folderNames = await this.loadFolderNames();
+        const folderNameSet = new Set(folderNames);
         const modelsFound = new Map(); // Use Map to avoid duplicates
         
         // Access the ComfyUI app graph
@@ -611,24 +741,28 @@ export class DownloaderUI {
                     node.properties.models.forEach((model) => {
                         const filename = model.name || model.filename;
                         if (filename) {
+                            const normalizedFilename = this.normalizeRelativePath(filename);
+                            const displayName = normalizedFilename.split('/').pop();
+                            const resolvedDirectory = this.resolveModelDirectory(model.directory || null, model.type || null, folderNameSet);
+                            const filenamePath = normalizedFilename || displayName;
                             if (modelsFound.has(filename)) {
                                 // Only update URL if present
                                 const existing = modelsFound.get(filename);
                                 if (model.url) {
                                     existing.url = model.url;
                                 }
-                                if (model.directory && !existing.directory) {
-                                    existing.directory = model.directory;
+                                if (resolvedDirectory && !existing.directory) {
+                                    existing.directory = resolvedDirectory;
                                 }
                             } else {
                                 // Add new model entry
                                 modelsFound.set(filename, {
-                                    filename: filename,
-                                    filenamePath: filename,
-                                    fullPath: model.directory ? `${model.directory}/${filename}` : filename,
-                                    extension: '.' + filename.split('.').pop().toLowerCase(),
+                                    filename: displayName,
+                                    filenamePath: filenamePath,
+                                    fullPath: resolvedDirectory ? `${resolvedDirectory}/${filenamePath}` : filenamePath,
+                                    extension: '.' + displayName.split('.').pop().toLowerCase(),
                                     url: model.url || null,
-                                    directory: model.directory || null,
+                                    directory: resolvedDirectory,
                                     nodeType: node.type || 'Unknown',
                                     nodeTitle: node.title || node.type || 'Unknown'
                                 });
@@ -650,13 +784,14 @@ export class DownloaderUI {
                     }
 
                     const valueStr = widget.value.toString();
-                    const extension = '.' + valueStr.split('.').pop().toLowerCase();
+                    const normalizedValue = valueStr.replace(/\\/g, '/');
+                    const extension = '.' + normalizedValue.split('.').pop().toLowerCase();
                     
                     // Check if this is a model file
                     if (modelExtensions.includes(extension)) {
                         // Extract filename
-                        const filename = valueStr.split('/').pop();
-                        const filenamePath = valueStr;
+                        const filename = normalizedValue.split('/').pop();
+                        const filenamePath = normalizedValue;
                         
                         // Extract directory from widget options
                         let directory = null;
@@ -681,7 +816,7 @@ export class DownloaderUI {
                                 fullPath: fullPath,
                                 extension: extension,
                                 url: null, // Will be looked up from model-list.json
-                                directory: directory || "diffusion_models", // Will be looked up from model-list.json
+                                directory: directory || null,
                                 nodeType: node.type || 'Unknown',
                                 nodeTitle: node.title || node.type || 'Unknown'
                             });
@@ -721,13 +856,28 @@ export class DownloaderUI {
         // Convert Map to array and look up URLs and directories for models from Priority 2 (widgets_values)
         const modelsArray = Array.from(modelsFound.values());
         
-        // Look up URLs and directories from model-list.json for models without URL
+        // Look up URLs and directories from model-list.json
         for (let model of modelsArray) {
-            if (!model.url) {
-                const modelInfo = await this.getModelInfo(model.filename);
+            const modelInfo = await this.getModelInfo(model.filename);
+            if (!model.url && modelInfo.url) {
                 model.url = modelInfo.url;
-                if (modelInfo.directory) {
-                    model.directory = modelInfo.directory;
+            }
+
+            if (!model.directory) {
+                const resolvedDirectory = this.resolveModelDirectory(modelInfo.directory, modelInfo.type, folderNameSet);
+                if (resolvedDirectory) {
+                    model.directory = resolvedDirectory;
+
+                    // If model-list uses nested save_path (e.g. checkpoints/sdxl),
+                    // append that relative part when workflow value has only filename.
+                    const normalizedSavePath = this.normalizeRelativePath(modelInfo.directory || '');
+                    const savePathParts = normalizedSavePath.split('/').filter(Boolean);
+                    const relativeSavePath = savePathParts.slice(1).join('/');
+                    const currentPath = this.normalizeRelativePath(model.filenamePath || model.filename);
+                    if (relativeSavePath && !currentPath.includes('/')) {
+                        model.filenamePath = `${relativeSavePath}/${currentPath}`;
+                        model.fullPath = `${resolvedDirectory}/${model.filenamePath}`;
+                    }
                 }
             }
         }
@@ -806,11 +956,19 @@ export class DownloaderUI {
                         </select>
                         <input 
                             type="text" 
+                            class="downloader-filename-input" 
+                            placeholder="Filename or subfolder/file.ext"
+                            value="${this.escapeHtml(model.filenamePath || model.filename)}"
+                            data-model-index="${index}"
+                            style="flex: 1.5; min-width: 260px; padding: 5px;"
+                        />
+                        <input 
+                            type="text" 
                             class="downloader-url-input" 
                             placeholder="Download URL..." 
                             value="${this.escapeHtml(model.url || '')}"
                             data-model-index="${index}"
-                            style="flex: 2; min-width: 300px; padding: 5px;"
+                            style="flex: 1.8; min-width: 300px; padding: 5px;"
                         />
                         <button 
                             class="downloader-download-btn" 
@@ -837,9 +995,10 @@ export class DownloaderUI {
         downloadButtons.forEach(async (button) => {
             const modelIndex = parseInt(button.dataset.modelIndex);
             const model = this.modelsInWorkflow[modelIndex];
+            const initialPath = this.normalizeRelativePath(model.filenamePath || model.filename);
             
             // Check if file already exists in ComfyUI
-            const fileExists = await this.isFileDownloaded(model.directory || '', model.filenamePath);
+            const fileExists = await this.isFileDownloaded(model.directory || '', initialPath);
             if (fileExists) {
                 button.textContent = '✓ Downloaded';
                 button.style.backgroundColor = '#4CAF50';
@@ -859,9 +1018,11 @@ export class DownloaderUI {
                 // Handle download action
                 // Get current values from inputs
                 const directoryInput = listContainer.querySelector(`.downloader-directory-input[data-model-index="${modelIndex}"]`);
+                const filenameInput = listContainer.querySelector(`.downloader-filename-input[data-model-index="${modelIndex}"]`);
                 const urlInput = listContainer.querySelector(`.downloader-url-input[data-model-index="${modelIndex}"]`);
                 
                 const directory = directoryInput?.value.trim();
+                const filenamePath = this.normalizeRelativePath(filenameInput?.value.trim() || '');
                 const url = urlInput?.value.trim();
                 
                 if (!url) {
@@ -873,9 +1034,20 @@ export class DownloaderUI {
                     alert('Please enter a folder/directory path');
                     return;
                 }
+
+                if (!filenamePath) {
+                    alert('Please enter filename/path');
+                    return;
+                }
+
+                // Persist edited path in memory so refreshed UI keeps the change.
+                model.filenamePath = filenamePath;
+                model.filename = filenamePath.split('/').pop();
+                model.fullPath = `${directory}/${filenamePath}`;
+                model.directory = directory;
                 
                 // Start download and get the real download_id from backend
-                const result = await this.startServerDownload(url, directory, model.filenamePath);
+                const result = await this.startServerDownload(url, directory, filenamePath);
                 
                 // Update button's download_id with the one returned from backend
                 if (result && result.success && result.download_id) {
@@ -927,7 +1099,10 @@ export class DownloaderUI {
                 option.textContent = folder;
                 folderSelect.appendChild(option);
             });
+            await this.updateManualDiskSpaceLabel(folderSelect.value.trim());
         }
+
+        await this.updateGlobalDiskSpaceLabel();
         
         // Automatically scan for models when opening
         this.scanWorkflowForModels();
